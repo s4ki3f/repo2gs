@@ -1,0 +1,72 @@
+import requests
+import json
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# GitHub Configuration
+GITHUB_REPO = os.getenv("GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_ASSIGNEE = os.getenv("GITHUB_ASSIGNEE")
+
+# Google Sheets Configuration
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+SHEET_NAME = os.getenv("SHEET_NAME")
+
+# Fetch GitHub Issues
+def fetch_github_issues():
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/issues"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    params = {"assignee": GITHUB_ASSIGNEE}
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()
+    return response.json()
+
+# Write to Google Sheets
+def write_to_google_sheets(data):
+    try:
+        # Authenticate with Google Sheets
+        creds = Credentials.from_service_account_file("credentials.json")  # Path to your credentials file
+        service = build("sheets", "v4", credentials=creds)
+        sheet = service.spreadsheets()
+        
+        # Define the range to update
+        range_name = f"{SHEET_NAME}!A1"
+        
+        # Prepare the data to be written
+        values = [
+            ["Issue ID", "Title", "State", "URL", "Assignee"]
+        ]
+        for issue in data:
+            assignee = issue["assignee"]["login"] if issue["assignee"] else "Unassigned"
+            values.append([issue["id"], issue["title"], issue["state"], issue["html_url"], assignee])
+        
+        body = {
+            "values": values
+        }
+        
+        # Write data to Google Sheets
+        result = sheet.values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=range_name,
+            valueInputOption="RAW",
+            body=body
+        ).execute()
+        print(f"{result.get('updatedCells')} cells updated.")
+    except Exception as e:
+        print(f"An error occurred while writing to Google Sheets: {e}")
+
+# Main Function
+if __name__ == "__main__":
+    try:
+        issues = fetch_github_issues()
+        write_to_google_sheets(issues)
+        print("Successfully updated Google Sheet with GitHub issues!")
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while fetching GitHub issues: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
